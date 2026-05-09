@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>固定范围伏安特性曲线绘制 (-4V ~ 30V)</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 1100px; margin: 0 auto; padding: 20px; background-color: #f5f7fa; }
+        .container { display: flex; gap: 20px; }
+        .input-panel { flex: 1; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
+        .chart-panel { flex: 2; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); }
+        textarea { width: 100%; height: 120px; margin-bottom: 10px; padding: 10px; box-sizing: border-box; border: 1px solid #dcdfe6; border-radius: 4px; font-family: monospace; }
+        .scan-settings { background: #f0f9eb; padding: 10px; border-radius: 4px; margin-bottom: 10px; border: 1px solid #e1f3d8; }
+        .scan-settings label { font-size: 13px; margin-right: 5px; }
+        .scan-settings input { width: 60px; padding: 3px; margin-right: 10px; }
+        button { background-color: #409eff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; width: 100%; margin-bottom: 5px; }
+        button.secondary { background-color: #67c23a; }
+        button:hover { opacity: 0.9; }
+        #main-chart { width: 100%; height: 450px; }
+        .tips { font-size: 12px; color: #909399; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+
+    <h2 style="text-align: center; color: #303133;">⚡ 伏安特性曲线绘制 (-4V ~ 30V 固定范围)</h2>
+
+    <div class="container">
+        <!-- 左侧数据输入区 -->
+        <div class="input-panel">
+            <!-- 自动扫描设置 -->
+            <div class="scan-settings">
+                <strong>⚙️ 自动电压扫描生成：</strong><br><br>
+                <label>起始(V):</label><input type="number" id="startV" value="-4" step="0.1">
+                <label>结束(V):</label><input type="number" id="endV" value="30" step="0.1">
+                <label>步长(V):</label><input type="number" id="stepV" value="1" step="0.1">
+                <button class="secondary" onclick="generateVoltage()" style="margin-top: 10px;">自动生成电压序列</button>
+            </div>
+
+            <div class="tips">电压值（V，固定范围 -4 到 30）：</div>
+            <textarea id="voltageData"></textarea>
+            
+            <div class="tips">对应的电流值（A）：</div>
+            <textarea id="currentData" placeholder="在此处粘贴或输入对应的电流数据..."></textarea>
+            
+            <button onclick="drawIVCurve()">生成伏安曲线</button>
+            <p id="status" style="color: #67c23a; font-size: 14px; text-align: center;"></p>
+        </div>
+
+        <!-- 右侧图表展示区 -->
+        <div class="chart-panel">
+            <div id="main-chart"></div>
+        </div>
+    </div>
+
+    <script>
+        var myChart = echarts.init(document.getElementById('main-chart'));
+
+        // 自动生成等间隔电压序列
+        function generateVoltage() {
+            const start = parseFloat(document.getElementById('startV').value);
+            const end = parseFloat(document.getElementById('endV').value);
+            const step = parseFloat(document.getElementById('stepV').value);
+            
+            if (step <= 0 || start >= end) {
+                alert("请检查起始、结束电压及步长的设置！");
+                return;
+            }
+
+            let voltages = [];
+            for (let v = start; v <= end + 0.0001; v += step) {
+                voltages.push(parseFloat(v.toFixed(4))); // 避免浮点数精度问题
+            }
+            document.getElementById('voltageData').value = voltages.join(', ');
+            document.getElementById('status').innerText = `✅ 已生成 ${voltages.length} 个电压扫描点`;
+        }
+
+        function drawIVCurve() {
+            const vInput = document.getElementById('voltageData').value;
+            const iInput = document.getElementById('currentData').value;
+            const statusText = document.getElementById('status');
+
+            const voltages = vInput.split(/[,，\n\s]+/).filter(v => v !== '').map(Number);
+            const currents = iInput.split(/[,，\n\s]+/).filter(i => i !== '').map(Number);
+
+            if (voltages.length === 0 || currents.length === 0) {
+                alert("请输入有效的电压和电流数据！");
+                return;
+            }
+            if (voltages.length !== currents.length) {
+                alert(`数据长度不匹配！电压有 ${voltages.length} 个，电流有 ${currents.length} 个。`);
+                return;
+            }
+
+            const chartData = voltages.map((v, index) => [v, currents[index]]);
+
+            const option = {
+                title: { text: '伏安特性曲线 (I-V Curve)', left: 'center' },
+                tooltip: { 
+                    trigger: 'axis',
+                    formatter: function (params) {
+                        const v = params[0].value[0];
+                        const i = params[0].value[1];
+                        const r = i !== 0 ? (v / i).toFixed(2) : (v === 0 ? '0' : '∞');
+                        return `电压: ${v} V<br/>电流: ${i} A<br/>推算电阻: ${r} Ω`;
+                    }
+                },
+                xAxis: { 
+                    name: '电压 (V)', 
+                    type: 'value', 
+                    min: -4,       // 强制固定 X 轴最小值
+                    max: 30,       // 强制固定 X 轴最大值
+                    axisLine: { onZero: true }, // 让 Y 轴在 X=0 处显示
+                    splitLine: { show: true, lineStyle: { type: 'dashed' } }
+                },
+                yAxis: { 
+                    name: '电流 (A)', 
+                    type: 'value', 
+                    axisLine: { onZero: true }, // 让 X 轴在 Y=0 处显示
+                    splitLine: { show: true, lineStyle: { type: 'dashed' } }
+                },
+                series: [{
+                    name: 'I-V 关系',
+                    type: 'line',
+                    data: chartData,
+                    smooth: true,
+                    symbol: 'circle',
+                    symbolSize: 6,
+                    lineStyle: { width: 3, color: '#409eff' },
+                    itemStyle: { color: '#409eff' }
+                }],
+                grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true }
+            };
+
+            myChart.setOption(option);
+            statusText.innerText = `✅ 成功绘制 ${voltages.length} 组数据点！(范围: ${Math.min(...voltages)}V ~ ${Math.max(...voltages)}V)`;
+        }
+
+        window.onload = function() {
+            generateVoltage(); // 页面加载时默认生成 -4 到 30 的序列
+        };
+        window.onresize = function() { myChart.resize(); };
+    </script>
+</body>
+</html>
